@@ -84,8 +84,8 @@ pub async fn get_list_of_open_source_versions() -> Result<Vec<OpenSourceVersion>
     Ok(open_source_versions)
 }
 
+/// Downloads a Minecraft version from the official Minecraft website.
 pub async fn download_version(version: &OpenSourceVersion) -> Result<DownloadResult> {
-    let time = chrono::Utc::now().timestamp();
     let client_path = temp_dir().join(format!("client-{}.jar", version.version));
     let server_path = temp_dir().join(format!("server-{}.jar", version.version));
     let client = reqwest::Client::new();
