@@ -29,8 +29,8 @@ pub struct OpenSourceVersion {
 }
 
 pub struct DownloadResult {
-    server: PathBuf,
-    client: PathBuf,
+    pub server: PathBuf,
+    pub client: PathBuf,
 }
 
 const MINECRAFT_PISTON_META_URL: &str =
@@ -84,57 +84,59 @@ pub async fn get_list_of_open_source_versions() -> Result<Vec<OpenSourceVersion>
     Ok(open_source_versions)
 }
 
-/// Downloads a Minecraft version from the official Minecraft website.
-pub async fn download_version(version: &OpenSourceVersion) -> Result<DownloadResult> {
-    let client_path = temp_dir().join(format!("client-{}.jar", version.version));
-    let server_path = temp_dir().join(format!("server-{}.jar", version.version));
-    let client = reqwest::Client::new();
+impl OpenSourceVersion {
+    /// Downloads a Minecraft version from the official Minecraft website.
+    pub async fn download(&self) -> Result<DownloadResult> {
+        let client_path = temp_dir().join(format!("client-{}.jar", self.version));
+        let server_path = temp_dir().join(format!("server-{}.jar", self.version));
+        let client = reqwest::Client::new();
 
-    let response = client.get(version.manifest_url.clone()).send().await?;
-    let manifest: serde_json::Value = response.json().await?;
+        let response = client.get(self.manifest_url.clone()).send().await?;
+        let manifest: serde_json::Value = response.json().await?;
 
-    let client_url = manifest["downloads"]["client"]["url"]
-        .as_str()
-        .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveClientJar(
-            version.version.clone()
-        )))?;
-    let server_url = manifest["downloads"]["server"]["url"]
-        .as_str()
-        .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveServerJar(
-            version.version.clone()
-        )))?;
+        let client_url = manifest["downloads"]["client"]["url"]
+            .as_str()
+            .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveClientJar(
+                self.version.clone()
+            )))?;
+        let server_url = manifest["downloads"]["server"]["url"]
+            .as_str()
+            .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveServerJar(
+                self.version.clone()
+            )))?;
 
-    let client_url = client_url.to_string();
-    let server_url = server_url.to_string();
-    let client_path_clone = client_path.clone();
-    let server_path_clone = server_path.clone();
+        let client_url = client_url.to_string();
+        let server_url = server_url.to_string();
+        let client_path_clone = client_path.clone();
+        let server_path_clone = server_path.clone();
 
-    let (client_result, server_result) = tokio::join!(
-        async {
-            info!("Downloading client jar");
-            let response = client.get(&client_url).send().await?;
-            let bytes = response.bytes().await?;
-            tokio::fs::write(&client_path_clone, bytes).await?;
-            info!("Client jar downloaded to {:?}", client_path_clone);
-            Ok::<(), anyhow::Error>(())
-        },
-        async {
-            info!("Downloading server jar");
-            let response = client.get(&server_url).send().await?;
-            let bytes = response.bytes().await?;
-            tokio::fs::write(&server_path_clone, bytes).await?;
-            info!("Server jar downloaded to {:?}", server_path_clone);
-            Ok::<(), anyhow::Error>(())
-        }
-    );
+        let (client_result, server_result) = tokio::join!(
+            async {
+                info!("Downloading client jar");
+                let response = client.get(&client_url).send().await?;
+                let bytes = response.bytes().await?;
+                tokio::fs::write(&client_path_clone, bytes).await?;
+                info!("Client jar downloaded to {:?}", client_path_clone);
+                Ok::<(), anyhow::Error>(())
+            },
+            async {
+                info!("Downloading server jar");
+                let response = client.get(&server_url).send().await?;
+                let bytes = response.bytes().await?;
+                tokio::fs::write(&server_path_clone, bytes).await?;
+                info!("Server jar downloaded to {:?}", server_path_clone);
+                Ok::<(), anyhow::Error>(())
+            }
+        );
 
-    client_result?;
-    server_result?;
+        client_result?;
+        server_result?;
 
-    Ok(DownloadResult {
-        client: client_path,
-        server: server_path,
-    })
+        Ok(DownloadResult {
+            client: client_path,
+            server: server_path,
+        })
+    }
 }
 
 /// This will check if the date provided is after the open source date
@@ -163,14 +165,12 @@ mod test {
             .filter_level(LevelFilter::Trace)
             .is_test(false)
             .init();
-        let versions = crate::piston_meta::get_list_of_open_source_versions()
+        let version = crate::piston_meta::get_list_of_open_source_versions()
             .await
             .unwrap()
             .pop()
             .unwrap();
-        let result = crate::piston_meta::download_version(&versions)
-            .await
-            .unwrap();
+        let result = version.download().await.unwrap();
         assert!(result.client.exists());
         assert!(result.server.exists());
     }
