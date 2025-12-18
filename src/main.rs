@@ -1,5 +1,6 @@
 mod java_decompiler;
 mod piston_meta;
+mod git;
 
 use anyhow::Result;
 use log::LevelFilter;
