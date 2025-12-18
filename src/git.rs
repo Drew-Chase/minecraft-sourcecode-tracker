@@ -1,34 +1,59 @@
 use anyhow::{Result, anyhow, bail};
-use git2::{Repository, RepositoryInitOptions, RepositoryState, Tag};
+use git2::{Cred, PushOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
 use log::{debug, info, warn};
 use std::fs;
 use std::path::PathBuf;
-use which::Path;
 
 pub struct GitTracker {
     pub repository: Repository,
+    username: String,
+    auth_token: String,
 }
 
 impl GitTracker {
-    pub fn new(path: impl AsRef<str>, url: impl AsRef<str>) -> Result<Self> {
+    pub fn new(
+        path: impl AsRef<str>,
+        url: impl AsRef<str>,
+        username: impl AsRef<str>,
+        auth_token: impl AsRef<str>,
+        email: Option<String>,
+    ) -> Result<Self> {
         let path = path.as_ref();
+        let url = url.as_ref();
+        let username = username.as_ref().to_string();
+        let auth_token = auth_token.as_ref().to_string();
 
         let mut options = RepositoryInitOptions::new();
-        options.workdir_path(&Path::new(path)?);
+        options.workdir_path(std::path::Path::new(path));
         options.no_dotgit_dir(true);
-        options.origin_url(url.as_ref());
-        let repository = Repository::init_opts(path, &options)?;
-        repository.remote_set_pushurl("origin", Some(url.as_ref()))?;
+        options.origin_url(url);
 
-        Ok(GitTracker { repository })
+        let repository = Repository::init_opts(path, &options)?;
+        repository.remote_set_pushurl("origin", Some(url))?;
+
+        // Set local git config for user.name and user.email
+        {
+            let mut config = repository.config()?;
+            config.set_str("user.name", &username)?;
+            if let Some(ref email) = email {
+                config.set_str("user.email", email)?;
+            }
+        }
+
+        Ok(GitTracker {
+            repository,
+            username,
+            auth_token,
+        })
     }
 
     pub fn create_commit(
         &'_ self,
         commit_message: impl AsRef<str>,
-        branch: String,
+        branch: impl AsRef<str>,
         tag_name: Option<String>,
     ) -> Result<()> {
+        let branch = branch.as_ref();
         let commit_message = commit_message.as_ref();
         info!("Creating commit {}", commit_message);
         let working_dir = self
@@ -117,20 +142,30 @@ impl GitTracker {
         debug!("Pushing to remote");
         let mut remote = self.repository.find_remote("origin")?;
 
-        // Build refspecs - always push the branch
+        // Build refspecs
         let mut refspecs = vec![format!(
             "refs/heads/{branch}:refs/heads/{branch}",
             branch = branch
         )];
 
-        // Add tag refspec if a tag was created
         if let Some(ref tag) = tag_name {
             refspecs.push(format!("refs/tags/{tag}:refs/tags/{tag}"));
         }
 
-        // Convert to &str slice for push
+        // Set up authentication callbacks
+        let mut callbacks = RemoteCallbacks::new();
+        let username = self.username.clone();
+        let auth_token = self.auth_token.clone();
+        
+        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+            Cred::userpass_plaintext(&username, &auth_token)
+        });
+
+        let mut push_options = PushOptions::new();
+        push_options.remote_callbacks(callbacks);
+
         let refspec_strs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
-        remote.push(&refspec_strs, None)?;
+        remote.push(&refspec_strs, Some(&mut push_options))?;
 
         let remote_url = remote.url().unwrap_or("");
         info!(
