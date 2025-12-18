@@ -58,7 +58,19 @@ async fn run(args: &Arguments) -> Result<()> {
         info!("Processing version {}", version.version);
         let result = version.download().await?;
         java_decompiler::decompile_from_path(&result.client, processing_directory).await?;
-        git_tracker.create_commit(format!("Processed minecraft {} version {}", if version.is_snapshot {"snapshot"}else{"release"}, version.version), "client", Some(version.version.to_string()))?;
+        git_tracker.create_commit(
+            format!(
+                "Processed minecraft {} version {}",
+                if version.is_snapshot {
+                    "snapshot"
+                } else {
+                    "release"
+                },
+                version.version
+            ),
+            "client",
+            Some(version.version.to_string()),
+        )?;
         tokio::fs::remove_dir_all(processing_directory).await?;
         tokio::fs::create_dir_all(processing_directory).await?;
     }
