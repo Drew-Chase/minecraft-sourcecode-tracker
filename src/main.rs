@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        tokio::time::Duration::from_hours(1),
+        tokio::time::Duration::from_hours(4),
     );
 
     Ok(())
@@ -38,14 +38,23 @@ async fn main() -> Result<()> {
 async fn run(args: &Arguments) -> Result<()> {
     let args = args.clone();
     let processing_directory = "./working";
+    let git_dir = "./git";
+    if tokio::fs::try_exists(git_dir).await? {
+        tokio::fs::remove_dir_all(git_dir).await?;
+    }
+    tokio::fs::create_dir_all(git_dir).await?;
+    if tokio::fs::try_exists(processing_directory).await? {
+        tokio::fs::remove_dir_all(processing_directory).await?;
+    }
     tokio::fs::create_dir_all(processing_directory).await?;
 
     let git_tracker = git::GitTracker::new(
+        git_dir,
         processing_directory,
-        args.git_url,
-        args.git_username,
-        args.git_auth_token,
-        args.git_email,
+        &args.git_url,
+        &args.git_username,
+        &args.git_auth_token,
+        args.git_email.clone(),
     )?;
     let list_of_processed_versions = git_tracker.get_tags()?;
     let versions_to_process = piston_meta::get_list_of_open_source_versions().await?;
@@ -55,10 +64,23 @@ async fn run(args: &Arguments) -> Result<()> {
         .collect::<Vec<_>>();
     versions_to_process.reverse();
     for version in versions_to_process {
+        if tokio::fs::try_exists(git_dir).await? {
+            tokio::fs::remove_dir_all(git_dir).await?;
+        }
+        let git_tracker = git::GitTracker::new(
+            git_dir,
+            processing_directory,
+            &args.git_url,
+            &args.git_username,
+            &args.git_auth_token,
+            args.git_email.clone(),
+        )?;
         info!("Processing version {}", version.version);
+        tokio::fs::create_dir_all(processing_directory).await?;
         let result = version.download().await?;
         java_decompiler::decompile_from_path(&result.client, processing_directory).await?;
         git_tracker.create_commit(
+            processing_directory,
             format!(
                 "Processed minecraft {} version {}",
                 if version.is_snapshot {
@@ -72,7 +94,7 @@ async fn run(args: &Arguments) -> Result<()> {
             Some(version.version.to_string()),
         )?;
         tokio::fs::remove_dir_all(processing_directory).await?;
-        tokio::fs::create_dir_all(processing_directory).await?;
+        tokio::fs::remove_dir_all(git_dir).await?;
     }
 
     Ok(())

@@ -1,8 +1,8 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use git2::{Cred, PushOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
 use log::{debug, info, warn};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct GitTracker {
     pub repository: Repository,
@@ -12,23 +12,25 @@ pub struct GitTracker {
 
 impl GitTracker {
     pub fn new(
-        path: impl AsRef<str>,
+        git_dir: impl AsRef<Path>,
+        repo_dir: impl AsRef<Path>,
         url: impl AsRef<str>,
         username: impl AsRef<str>,
         auth_token: impl AsRef<str>,
         email: Option<String>,
     ) -> Result<Self> {
-        let path = path.as_ref();
+        let git_dir = git_dir.as_ref();
+        let repo_dir = repo_dir.as_ref();
         let url = url.as_ref();
         let username = username.as_ref().to_string();
         let auth_token = auth_token.as_ref().to_string();
 
         let mut options = RepositoryInitOptions::new();
-        options.workdir_path(std::path::Path::new(path));
+        options.workdir_path(std::env::current_dir()?.join(repo_dir).as_path());
         options.no_dotgit_dir(true);
         options.origin_url(url);
 
-        let repository = Repository::init_opts(path, &options)?;
+        let repository = Repository::init_opts(git_dir, &options)?;
         repository.remote_set_pushurl("origin", Some(url))?;
 
         // Set local git config for user.name and user.email
@@ -49,18 +51,15 @@ impl GitTracker {
 
     pub fn create_commit(
         &'_ self,
+        directory: impl AsRef<std::path::Path>,
         commit_message: impl AsRef<str>,
         branch: impl AsRef<str>,
         tag_name: Option<String>,
     ) -> Result<()> {
+        let directory = directory.as_ref().to_path_buf();
         let branch = branch.as_ref();
         let commit_message = commit_message.as_ref();
         info!("Creating commit {}", commit_message);
-        let working_dir = self
-            .repository
-            .workdir()
-            .ok_or_else(|| anyhow!("Failed to get working directory"))?
-            .to_path_buf();
 
         let mut index = self.repository.index()?;
 
@@ -68,7 +67,7 @@ impl GitTracker {
         index.clear()?;
 
         debug!("Adding all files form the working directory to the index");
-        self.add_directory_to_index(&mut index, &working_dir, &working_dir)?;
+        self.add_directory_to_index(&mut index, &directory, &directory)?;
 
         debug!("Writing all files to the index");
         index.write()?;
