@@ -37,8 +37,13 @@ async fn main() -> Result<()> {
 
 async fn run(args: &Arguments) -> Result<()> {
     let args = args.clone();
-    let processing_directory = "./working";
-    let git_dir = "./git";
+    let temp_base = std::env::temp_dir().join("minecraft-sourcecode-tracker");
+    let processing_directory = temp_base.join("working");
+    let git_dir = temp_base.join("git");
+    let processing_directory = processing_directory.to_string_lossy().to_string();
+    let git_dir = git_dir.to_string_lossy().to_string();
+    let processing_directory = processing_directory.as_str();
+    let git_dir = git_dir.as_str();
     if tokio::fs::try_exists(git_dir).await? {
         tokio::fs::remove_dir_all(git_dir).await?;
     }
@@ -48,15 +53,17 @@ async fn run(args: &Arguments) -> Result<()> {
     }
     tokio::fs::create_dir_all(processing_directory).await?;
 
-    let git_tracker = git::GitTracker::new(
-        git_dir,
-        processing_directory,
-        &args.git_url,
-        &args.git_username,
-        &args.git_auth_token,
-        args.git_email.clone(),
-    )?;
-    let list_of_processed_versions = git_tracker.get_tags()?;
+    let list_of_processed_versions = {
+        let git_tracker = git::GitTracker::new(
+            git_dir,
+            processing_directory,
+            &args.git_url,
+            &args.git_username,
+            &args.git_auth_token,
+            args.git_email.clone(),
+        )?;
+        git_tracker.get_tags()?
+    }; // git_tracker is dropped here, releasing file handles
     let versions_to_process = piston_meta::get_list_of_open_source_versions().await?;
     let mut versions_to_process = versions_to_process
         .iter()
@@ -67,6 +74,7 @@ async fn run(args: &Arguments) -> Result<()> {
         if tokio::fs::try_exists(git_dir).await? {
             tokio::fs::remove_dir_all(git_dir).await?;
         }
+        tokio::fs::create_dir_all(git_dir).await?;
         let git_tracker = git::GitTracker::new(
             git_dir,
             processing_directory,

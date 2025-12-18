@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use git2::{Cred, PushOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
+use git2::{Cred, PushOptions, RemoteCallbacks, Repository};
 use log::{debug, info, warn};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,12 +25,14 @@ impl GitTracker {
         let username = username.as_ref().to_string();
         let auth_token = auth_token.as_ref().to_string();
 
-        let mut options = RepositoryInitOptions::new();
-        options.workdir_path(std::env::current_dir()?.join(repo_dir).as_path());
-        options.no_dotgit_dir(true);
-        options.origin_url(url);
+        // Initialize a bare-like repository at git_dir with workdir at repo_dir
+        let repository = Repository::init(git_dir)?;
 
-        let repository = Repository::init_opts(git_dir, &options)?;
+        // Set the workdir separately
+        repository.set_workdir(repo_dir, false)?;
+
+        // Add origin remote
+        repository.remote("origin", url)?;
         repository.remote_set_pushurl("origin", Some(url))?;
 
         // Set local git config for user.name and user.email
