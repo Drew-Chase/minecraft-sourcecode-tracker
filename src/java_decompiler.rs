@@ -93,7 +93,7 @@ mod test {
             .filter_level(LevelFilter::Trace)
             .is_test(false)
             .init();
-        let path = PathBuf::from("./vendors/client.jar");
+        let path = PathBuf::from("./vendors/cfr-0.152.jar");
         let output = "./target/tests/decompile_client_jar/";
         decompile_from_path(path, output).await.unwrap();
     }
