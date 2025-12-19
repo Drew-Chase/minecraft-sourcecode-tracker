@@ -8,6 +8,7 @@ use anyhow::Result;
 use clap::Parser;
 use log::{LevelFilter, info};
 use obsidian_scheduler::callback::CallbackTimer;
+use obsidian_scheduler::timer_trait::Timer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,7 +22,7 @@ async fn main() -> Result<()> {
     );
     run(&args).await?;
 
-    CallbackTimer::new(
+    let timer = CallbackTimer::new(
         move |_| {
             let args_clone = args.clone();
             async move {
@@ -32,6 +33,20 @@ async fn main() -> Result<()> {
         tokio::time::Duration::from_hours(4),
     );
 
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("Received Ctrl+C, shutting down...");
+        }
+        _ = async {
+            while timer.is_running().await {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        } => {
+            info!("Timer completed.");
+        }
+    }
+
+    info!("Shutting down Minecraft Source Code Tracker...");
     Ok(())
 }
 
