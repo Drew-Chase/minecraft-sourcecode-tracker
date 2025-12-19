@@ -47,7 +47,7 @@ pub async fn decompile_from_path(path: impl AsRef<Path>, output: impl AsRef<Path
             while let Some(stderr) = child.stderr.take() {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
-                    info!("{}", line?);
+                    debug!("{}", line?);
                 }
             }
             debug!("Finished Decompiling path {}", path.display());
