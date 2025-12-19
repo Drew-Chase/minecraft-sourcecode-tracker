@@ -53,7 +53,7 @@ impl GitTracker {
 
     pub fn create_commit(
         &'_ self,
-        directory: impl AsRef<std::path::Path>,
+        directory: impl AsRef<Path>,
         commit_message: impl AsRef<str>,
         branch: impl AsRef<str>,
         tag_name: Option<String>,
@@ -122,7 +122,12 @@ impl GitTracker {
 
         debug!("Commit created: {}", commit_id);
 
-        // Create a tag if provided
+        // Create or update the branch to point to the new commit
+        let commit = self.repository.find_commit(commit_id)?;
+        self.repository.branch(branch, &commit, true)?; // true = force update if exists
+        debug!("Branch '{}' created/updated to point to {}", branch, commit_id);
+
+        // Create tag if provided
         if let Some(ref tag) = tag_name {
             debug!("Creating tag: {}", tag);
             let commit_obj = self
