@@ -10,7 +10,7 @@ FROM alpine:latest
 RUN mkdir -p /app
 COPY --from=builder /build/target/release/minecraft-sourcecode-tracker /app/minecraft_sourcecode_tracker
 RUN chmod +x /app/minecraft_sourcecode_tracker
-RUN apk add --no-cache openjdk17-jre
+RUN apk add --no-cache openjdk17-jre ca-certificates
 WORKDIR /app
 
 ENTRYPOINT ["/bin/sh", "-c", "\
