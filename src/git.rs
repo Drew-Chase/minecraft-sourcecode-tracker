@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use git2::{Cred, PushOptions, RemoteCallbacks, Repository};
 use log::{debug, info, warn};
 use std::fs;
@@ -219,13 +219,40 @@ impl GitTracker {
         Ok(())
     }
 
-    pub fn get_tags(&self) -> Result<Vec<String>> {
-        match self.repository.tag_names(None) {
-            Ok(tags) => Ok(tags
-                .into_iter()
-                .filter_map(|tag| tag.map(|tag| tag.trim().to_string()))
-                .collect::<Vec<String>>()),
-            Err(_) => bail!("Could not get tags"),
-        }
+    /// Fetches tags from the remote and returns them
+    pub fn get_remote_tags(&self) -> Result<Vec<String>> {
+        let mut remote = self.repository.find_remote("origin")?;
+
+        // Set up authentication callbacks
+        let mut callbacks = RemoteCallbacks::new();
+        let username = self.username.clone();
+        let auth_token = self.auth_token.clone();
+
+        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+            Cred::userpass_plaintext(&username, &auth_token)
+        });
+
+        // Connect to the remote
+        remote.connect_auth(git2::Direction::Fetch, Some(callbacks), None)?;
+
+        // Get the list of remote references
+        let refs = remote.list()?;
+
+        let tags: Vec<String> = refs
+            .iter()
+            .filter_map(|r| {
+                let name = r.name();
+                // Remote tags are listed as "refs/tags/tag_name"
+                if name.starts_with("refs/tags/") {
+                    Some(name.trim_start_matches("refs/tags/").to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        remote.disconnect()?;
+
+        Ok(tags)
     }
 }
