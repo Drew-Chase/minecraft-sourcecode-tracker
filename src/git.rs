@@ -1,6 +1,7 @@
 use anyhow::Result;
 use git2::{Cred, PushOptions, RemoteCallbacks, Repository};
 use log::{debug, info, warn};
+use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -164,10 +165,25 @@ impl GitTracker {
         let mut callbacks = RemoteCallbacks::new();
         let username = self.username.clone();
         let auth_token = self.auth_token.clone();
+        let attempts = Cell::new(0u32);
 
-        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+        callbacks.credentials(move |url, username_from_url, allowed_types| {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            debug!(
+                "Credentials callback attempt {}: url={}, username_from_url={:?}, allowed_types={:?}",
+                attempt, url, username_from_url, allowed_types
+            );
+            // Allow a few attempts for multi-refspec pushes, but prevent infinite loops
+            if attempt > 3 {
+                warn!("Too many credential attempts, authentication likely failing");
+                return Err(git2::Error::from_str("authentication failed after multiple attempts"));
+            }
             Cred::userpass_plaintext(&username, &auth_token)
         });
+
+        // Accept all certificates (needed for self-hosted git servers with custom CAs)
+        callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
 
         let mut push_options = PushOptions::new();
         push_options.remote_callbacks(callbacks);
@@ -226,10 +242,24 @@ impl GitTracker {
         let mut callbacks = RemoteCallbacks::new();
         let username = self.username.clone();
         let auth_token = self.auth_token.clone();
+        let attempts = Cell::new(0u32);
 
-        callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+        callbacks.credentials(move |url, username_from_url, allowed_types| {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            debug!(
+                "Credentials callback (fetch) attempt {}: url={}, username_from_url={:?}, allowed_types={:?}",
+                attempt, url, username_from_url, allowed_types
+            );
+            if attempt > 3 {
+                warn!("Too many credential attempts, authentication likely failing");
+                return Err(git2::Error::from_str("authentication failed after multiple attempts"));
+            }
             Cred::userpass_plaintext(&username, &auth_token)
         });
+
+        // Accept all certificates (needed for self-hosted git servers with custom CAs)
+        callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
 
         // Connect to the remote
         remote.connect_auth(git2::Direction::Fetch, Some(callbacks), None)?;
