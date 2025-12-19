@@ -17,19 +17,15 @@ pub enum PistonMetaError {
     VersionDoesNotHaveManifestUrl(String),
     #[error("'{0}' version does not have a client jar url")]
     VersionDoesNotHaveClientJar(String),
-    #[error("'{0}' version does not have a server jar url")]
-    VersionDoesNotHaveServerJar(String),
 }
 
 pub struct OpenSourceVersion {
     pub version: String,
     pub manifest_url: String,
     pub is_snapshot: bool,
-    pub release_date: NaiveDateTime,
 }
 
 pub struct DownloadResult {
-    pub server: PathBuf,
     pub client: PathBuf,
 }
 
@@ -68,7 +64,6 @@ pub async fn get_list_of_open_source_versions() -> Result<Vec<OpenSourceVersion>
                 version: id.to_string(),
                 manifest_url: manifest_url.to_string(),
                 is_snapshot: version["type"].as_str().unwrap_or("release") == "snapshot",
-                release_date,
             };
             info!("Found open source version: {}", id);
             open_source_versions.push(version);
@@ -88,7 +83,6 @@ impl OpenSourceVersion {
     /// Downloads a Minecraft version from the official Minecraft website.
     pub async fn download(&self) -> Result<DownloadResult> {
         let client_path = temp_dir().join(format!("client-{}.jar", self.version));
-        let server_path = temp_dir().join(format!("server-{}.jar", self.version));
         let client = reqwest::Client::new();
 
         let response = client.get(self.manifest_url.clone()).send().await?;
@@ -99,42 +93,18 @@ impl OpenSourceVersion {
             .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveClientJar(
                 self.version.clone()
             )))?;
-        let server_url = manifest["downloads"]["server"]["url"]
-            .as_str()
-            .ok_or(anyhow!(PistonMetaError::VersionDoesNotHaveServerJar(
-                self.version.clone()
-            )))?;
 
         let client_url = client_url.to_string();
-        let server_url = server_url.to_string();
         let client_path_clone = client_path.clone();
-        let server_path_clone = server_path.clone();
 
-        let (client_result, server_result) = tokio::join!(
-            async {
-                info!("Downloading client jar");
-                let response = client.get(&client_url).send().await?;
-                let bytes = response.bytes().await?;
-                tokio::fs::write(&client_path_clone, bytes).await?;
-                info!("Client jar downloaded to {:?}", client_path_clone);
-                Ok::<(), anyhow::Error>(())
-            },
-            async {
-                info!("Downloading server jar");
-                let response = client.get(&server_url).send().await?;
-                let bytes = response.bytes().await?;
-                tokio::fs::write(&server_path_clone, bytes).await?;
-                info!("Server jar downloaded to {:?}", server_path_clone);
-                Ok::<(), anyhow::Error>(())
-            }
-        );
-
-        client_result?;
-        server_result?;
+        info!("Downloading client jar");
+        let response = client.get(&client_url).send().await?;
+        let bytes = response.bytes().await?;
+        tokio::fs::write(&client_path_clone, bytes).await?;
+        info!("Client jar downloaded to {:?}", client_path_clone);
 
         Ok(DownloadResult {
             client: client_path,
-            server: server_path,
         })
     }
 }
@@ -172,6 +142,5 @@ mod test {
             .unwrap();
         let result = version.download().await.unwrap();
         assert!(result.client.exists());
-        assert!(result.server.exists());
     }
 }
