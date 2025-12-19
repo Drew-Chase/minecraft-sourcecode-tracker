@@ -39,9 +39,8 @@ impl GitTracker {
         {
             let mut config = repository.config()?;
             config.set_str("user.name", &username)?;
-            if let Some(ref email) = email {
-                config.set_str("user.email", email)?;
-            }
+            let default_email = format!("{}@users.noreply.github.com", &username);
+            config.set_str("user.email", email.as_deref().unwrap_or(&default_email))?;
         }
 
         Ok(GitTracker {
