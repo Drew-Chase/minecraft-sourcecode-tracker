@@ -825,7 +825,6 @@ dependencies = [
  "obsidian-scheduler",
  "pretty_env_logger",
  "reqwest",
- "serde",
  "serde_json",
  "thiserror",
  "tokio",

@@ -2,6 +2,9 @@
 name = "minecraft-sourcecode-tracker"
 version = "0.1.0-alpha"
 edition = "2024"
+authors = ["Drew Chase"]
+description = "This will automatically decompile each version of minecraft and commit it to a git repository and create tags for each version."
+
 
 [dependencies]
 anyhow = { version = "1.0.100" }
@@ -12,7 +15,6 @@ pretty_env_logger = "0.5.0"
 which = { version = "8.0.0" }
 thiserror = { version = "2.0.17" }
 chrono = { version = "0.4.42", features = ["now"] }
-serde = { version = "1.0.228", features = ["serde_derive"] }
 serde_json = { version = "1.0.145" }
 reqwest = { version = "0.12.26", features = ["json"] }
 git2 = { version = "0.20.3" }
