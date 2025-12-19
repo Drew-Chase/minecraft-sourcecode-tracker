@@ -125,7 +125,10 @@ impl GitTracker {
         // Create or update the branch to point to the new commit
         let commit = self.repository.find_commit(commit_id)?;
         self.repository.branch(branch, &commit, true)?; // true = force update if exists
-        debug!("Branch '{}' created/updated to point to {}", branch, commit_id);
+        debug!(
+            "Branch '{}' created/updated to point to {}",
+            branch, commit_id
+        );
 
         // Create tag if provided
         if let Some(ref tag) = tag_name {
@@ -162,7 +165,7 @@ impl GitTracker {
         let mut callbacks = RemoteCallbacks::new();
         let username = self.username.clone();
         let auth_token = self.auth_token.clone();
-        
+
         callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
             Cred::userpass_plaintext(&username, &auth_token)
         });
@@ -196,6 +199,12 @@ impl GitTracker {
             let path = entry.path();
 
             let file_type = entry.file_type()?;
+
+            if let Some(filename) = path.file_name()
+                && filename.eq("summary.txt")
+            {
+                continue;
+            }
 
             if file_type.is_dir() {
                 // Recursively add subdirectory
