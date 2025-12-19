@@ -6,9 +6,10 @@ mod piston_meta;
 use crate::arguments::Arguments;
 use anyhow::Result;
 use clap::Parser;
-use log::{LevelFilter, info};
+use log::{LevelFilter, info, debug};
 use obsidian_scheduler::callback::CallbackTimer;
 use obsidian_scheduler::timer_trait::Timer;
+use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,8 +31,10 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        tokio::time::Duration::from_hours(4),
+        tokio::time::Duration::from_hours(1),
     );
+
+    timer.start().await?;
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
@@ -51,6 +54,8 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: &Arguments) -> Result<()> {
+    debug!("Running tracker task...");
+    let start_time = Instant::now();
     let args = args.clone();
     let temp_base = std::env::temp_dir().join("minecraft-sourcecode-tracker");
     let processing_directory = temp_base.join("working");
@@ -77,7 +82,7 @@ async fn run(args: &Arguments) -> Result<()> {
             &args.git_auth_token,
             args.git_email.clone(),
         )?;
-        git_tracker.get_tags()?
+        git_tracker.get_remote_tags()?
     }; // git_tracker is dropped here, releasing file handles
     let versions_to_process = piston_meta::get_list_of_open_source_versions().await?;
     let mut versions_to_process = versions_to_process
@@ -119,6 +124,7 @@ async fn run(args: &Arguments) -> Result<()> {
         tokio::fs::remove_dir_all(processing_directory).await?;
         tokio::fs::remove_dir_all(git_dir).await?;
     }
+    debug!("Tracker task completed in {} seconds", start_time.elapsed().as_secs());
 
     Ok(())
 }
