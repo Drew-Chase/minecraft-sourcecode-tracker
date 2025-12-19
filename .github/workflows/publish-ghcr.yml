@@ -1,7 +1,9 @@
 name: publish-ghcr.yml
 on:
-  workflow_dispatch
-
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
 jobs:
   build_and_publish:
     runs-on: ubuntu-latest
