@@ -1,10 +1,10 @@
 [package]
 name = "minecraft-sourcecode-tracker"
-version="0.1.4-alpha"
+version="1.0.0"
 edition = "2024"
 authors = ["Drew Chase"]
 description = "This will automatically decompile each version of minecraft and commit it to a git repository and create tags for each version."
-rust-version = "1.92.0"
+rust-version = "1.91.0"
 
 
 [dependencies]
