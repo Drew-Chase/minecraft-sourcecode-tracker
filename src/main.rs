@@ -64,49 +64,44 @@ async fn run(args: &Arguments) -> Result<()> {
     let git_dir = git_dir.to_string_lossy().to_string();
     let processing_directory = processing_directory.as_str();
     let git_dir = git_dir.as_str();
-    if tokio::fs::try_exists(git_dir).await? {
-        tokio::fs::remove_dir_all(git_dir).await?;
-    }
+
+    // Create directories if they don't exist (don't delete git_dir to reuse repo)
     tokio::fs::create_dir_all(git_dir).await?;
     if tokio::fs::try_exists(processing_directory).await? {
         tokio::fs::remove_dir_all(processing_directory).await?;
     }
     tokio::fs::create_dir_all(processing_directory).await?;
 
-    let list_of_processed_versions = {
-        let git_tracker = git::GitTracker::new(
-            git_dir,
-            processing_directory,
-            &args.git_url,
-            &args.git_username,
-            &args.git_auth_token,
-            args.git_email.clone(),
-        )?;
-        git_tracker.get_remote_tags()?
-    }; // git_tracker is dropped here, releasing file handles
+    // Create GitTracker once and reuse it
+    let git_tracker = git::GitTracker::new(
+        git_dir,
+        processing_directory,
+        &args.git_url,
+        &args.git_username,
+        &args.git_auth_token,
+        args.git_email.clone(),
+    )?;
+
+    let list_of_processed_versions = git_tracker.get_remote_tags()?;
     let versions_to_process = piston_meta::get_list_of_open_source_versions().await?;
     let mut versions_to_process = versions_to_process
         .iter()
         .filter(|version| !list_of_processed_versions.contains(&version.version))
         .collect::<Vec<_>>();
     versions_to_process.reverse();
+
     for version in versions_to_process {
-        if tokio::fs::try_exists(git_dir).await? {
-            tokio::fs::remove_dir_all(git_dir).await?;
-        }
-        tokio::fs::create_dir_all(git_dir).await?;
-        let git_tracker = git::GitTracker::new(
-            git_dir,
-            processing_directory,
-            &args.git_url,
-            &args.git_username,
-            &args.git_auth_token,
-            args.git_email.clone(),
-        )?;
         info!("Processing version {}", version.version);
+
+        // Clean and recreate the processing directory for each version
+        if tokio::fs::try_exists(processing_directory).await? {
+            tokio::fs::remove_dir_all(processing_directory).await?;
+        }
         tokio::fs::create_dir_all(processing_directory).await?;
+
         let result = version.download().await?;
         java_decompiler::decompile_from_path(&result.client, processing_directory).await?;
+
         // Fetch the remote branch to build on top of existing history
         git_tracker.fetch_branch("client")?;
         git_tracker.create_commit(
@@ -123,9 +118,13 @@ async fn run(args: &Arguments) -> Result<()> {
             "client",
             Some(version.version.to_string()),
         )?;
-        tokio::fs::remove_dir_all(processing_directory).await?;
-        tokio::fs::remove_dir_all(git_dir).await?;
     }
+
+    // Clean up processing directory when done
+    if tokio::fs::try_exists(processing_directory).await? {
+        tokio::fs::remove_dir_all(processing_directory).await?;
+    }
+
     debug!("Tracker task completed in {} seconds", start_time.elapsed().as_secs());
 
     Ok(())
