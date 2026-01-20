@@ -185,11 +185,41 @@ impl GitTracker {
         // Accept all certificates (needed for self-hosted git servers with custom CAs)
         callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
 
+        // Track push errors from the remote
+        let push_error: std::sync::Arc<std::sync::Mutex<Option<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let push_error_clone = push_error.clone();
+
+        callbacks.push_update_reference(move |refname, status| {
+            debug!("Push update reference: refname={}, status={:?}", refname, status);
+            if let Some(msg) = status {
+                warn!("Push rejected for {}: {}", refname, msg);
+                if let Ok(mut err) = push_error_clone.lock() {
+                    *err = Some(format!("Push rejected for {}: {}", refname, msg));
+                }
+            }
+            Ok(())
+        });
+
+        callbacks.push_transfer_progress(|current, total, bytes| {
+            debug!(
+                "Push progress: {}/{} objects, {} bytes",
+                current, total, bytes
+            );
+        });
+
         let mut push_options = PushOptions::new();
         push_options.remote_callbacks(callbacks);
 
         let refspec_strs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
         remote.push(&refspec_strs, Some(&mut push_options))?;
+
+        // Check if the remote rejected any refs
+        if let Ok(err) = push_error.lock()
+            && let Some(ref msg) = *err
+        {
+            return Err(anyhow::anyhow!("{}", msg));
+        }
 
         let remote_url = remote.url().unwrap_or("");
         info!(
