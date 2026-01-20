@@ -26,15 +26,26 @@ impl GitTracker {
         let username = username.as_ref().to_string();
         let auth_token = auth_token.as_ref().to_string();
 
-        // Initialize a bare-like repository at git_dir with workdir at repo_dir
-        let repository = Repository::init(git_dir)?;
+        // Try to open existing repository, or initialize a new one
+        let repository = match Repository::open(git_dir) {
+            Ok(repo) => {
+                debug!("Opened existing repository at {:?}", git_dir);
+                repo
+            }
+            Err(_) => {
+                debug!("Initializing new repository at {:?}", git_dir);
+                let repo = Repository::init(git_dir)?;
 
-        // Set the workdir separately
+                // Add origin remote (only for new repos)
+                repo.remote("origin", url)?;
+                repo.remote_set_pushurl("origin", Some(url))?;
+
+                repo
+            }
+        };
+
+        // Set the workdir (always, in case it changed)
         repository.set_workdir(repo_dir, false)?;
-
-        // Add origin remote
-        repository.remote("origin", url)?;
-        repository.remote_set_pushurl("origin", Some(url))?;
 
         // Set local git config for user.name and user.email
         {
