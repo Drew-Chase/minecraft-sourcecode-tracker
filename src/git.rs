@@ -348,21 +348,56 @@ impl GitTracker {
         let remote_ref_name = format!("refs/remotes/origin/{}", branch);
         match self.repository.find_reference(&remote_ref_name) {
             Ok(remote_ref) => {
-                let commit = remote_ref.peel_to_commit()?;
+                let remote_commit = remote_ref.peel_to_commit()?;
                 debug!(
                     "Remote branch '{}' points to commit {}",
                     branch,
-                    commit.id()
+                    remote_commit.id()
                 );
 
-                // Create or update the local branch to point to the same commit
-                self.repository.branch(branch, &commit, true)?;
-                debug!("Local branch '{}' updated to point to {}", branch, commit.id());
+                // Check if HEAD is already pointing to this branch
+                let head_is_branch = self
+                    .repository
+                    .head()
+                    .ok()
+                    .and_then(|h| h.shorthand().map(|s| s == branch))
+                    .unwrap_or(false);
 
-                // Set HEAD to point to the local branch
-                self.repository
-                    .set_head(&format!("refs/heads/{}", branch))?;
-                debug!("HEAD set to refs/heads/{}", branch);
+                if head_is_branch {
+                    // HEAD is already on this branch - check if we need to update it
+                    let head_commit = self.repository.head()?.peel_to_commit()?;
+                    if head_commit.id() == remote_commit.id() {
+                        debug!(
+                            "HEAD is already on '{}' at commit {}, no update needed",
+                            branch,
+                            head_commit.id()
+                        );
+                    } else {
+                        // Local is different from remote - reset HEAD to remote commit
+                        debug!(
+                            "Resetting HEAD from {} to remote commit {}",
+                            head_commit.id(),
+                            remote_commit.id()
+                        );
+                        self.repository.reset(
+                            remote_commit.as_object(),
+                            git2::ResetType::Soft,
+                            None,
+                        )?;
+                    }
+                } else {
+                    // HEAD is not on this branch - create/update branch and switch to it
+                    self.repository.branch(branch, &remote_commit, true)?;
+                    debug!(
+                        "Local branch '{}' updated to point to {}",
+                        branch,
+                        remote_commit.id()
+                    );
+
+                    self.repository
+                        .set_head(&format!("refs/heads/{}", branch))?;
+                    debug!("HEAD set to refs/heads/{}", branch);
+                }
             }
             Err(e) => {
                 // Branch might not exist on remote yet
