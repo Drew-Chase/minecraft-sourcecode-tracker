@@ -123,12 +123,27 @@ impl GitTracker {
         debug!("Commit created: {}", commit_id);
 
         // Create or update the branch to point to the new commit
+        // Skip if HEAD is already pointing to this branch (commit already updated it)
         let commit = self.repository.find_commit(commit_id)?;
-        self.repository.branch(branch, &commit, true)?; // true = force update if exists
-        debug!(
-            "Branch '{}' created/updated to point to {}",
-            branch, commit_id
-        );
+        let head_is_branch = self
+            .repository
+            .head()
+            .ok()
+            .and_then(|h| h.shorthand().map(|s| s == branch))
+            .unwrap_or(false);
+
+        if head_is_branch {
+            debug!(
+                "HEAD is already '{}', branch updated via commit to {}",
+                branch, commit_id
+            );
+        } else {
+            self.repository.branch(branch, &commit, true)?; // true = force update if exists
+            debug!(
+                "Branch '{}' created/updated to point to {}",
+                branch, commit_id
+            );
+        }
 
         // Create tag if provided
         if let Some(ref tag) = tag_name {
@@ -261,6 +276,92 @@ impl GitTracker {
                 index.add_path(relative_path)?;
             }
         }
+        Ok(())
+    }
+
+    /// Fetches a branch from the remote and sets up the local branch to track it.
+    /// This must be called before create_commit to ensure the new commit is built
+    /// on top of the existing remote history.
+    pub fn fetch_branch(&self, branch: impl AsRef<str>) -> Result<()> {
+        let branch = branch.as_ref();
+        debug!("Fetching branch '{}' from remote", branch);
+
+        let mut remote = self.repository.find_remote("origin")?;
+
+        // Set up authentication callbacks
+        let mut callbacks = RemoteCallbacks::new();
+        let username = self.username.clone();
+        let auth_token = self.auth_token.clone();
+        let attempts = Cell::new(0u32);
+
+        callbacks.credentials(move |url, username_from_url, allowed_types| {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            debug!(
+                "Credentials callback (fetch branch) attempt {}: url={}, username_from_url={:?}, allowed_types={:?}",
+                attempt, url, username_from_url, allowed_types
+            );
+            if attempt > 3 {
+                warn!("Too many credential attempts, authentication likely failing");
+                return Err(git2::Error::from_str("authentication failed after multiple attempts"));
+            }
+            Cred::userpass_plaintext(&username, &auth_token)
+        });
+
+        callbacks.certificate_check(|_cert, _host| Ok(git2::CertificateCheckStatus::CertificateOk));
+
+        // Set up fetch options
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+
+        // Fetch the specific branch
+        let refspec = format!("refs/heads/{branch}:refs/remotes/origin/{branch}");
+        debug!("Fetching with refspec: {}", refspec);
+
+        match remote.fetch(&[&refspec], Some(&mut fetch_options), None) {
+            Ok(_) => debug!("Fetch completed successfully"),
+            Err(e) => {
+                // If the branch doesn't exist on the remote yet, that's OK - it's a new branch
+                if e.code() == git2::ErrorCode::NotFound {
+                    info!(
+                        "Branch '{}' does not exist on remote yet, will create it",
+                        branch
+                    );
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        }
+
+        // Check if we got the remote branch
+        let remote_ref_name = format!("refs/remotes/origin/{}", branch);
+        match self.repository.find_reference(&remote_ref_name) {
+            Ok(remote_ref) => {
+                let commit = remote_ref.peel_to_commit()?;
+                debug!(
+                    "Remote branch '{}' points to commit {}",
+                    branch,
+                    commit.id()
+                );
+
+                // Create or update the local branch to point to the same commit
+                self.repository.branch(branch, &commit, true)?;
+                debug!("Local branch '{}' updated to point to {}", branch, commit.id());
+
+                // Set HEAD to point to the local branch
+                self.repository
+                    .set_head(&format!("refs/heads/{}", branch))?;
+                debug!("HEAD set to refs/heads/{}", branch);
+            }
+            Err(e) => {
+                // Branch might not exist on remote yet
+                debug!(
+                    "Could not find remote reference '{}': {} - branch may be new",
+                    remote_ref_name, e
+                );
+            }
+        }
+
         Ok(())
     }
 

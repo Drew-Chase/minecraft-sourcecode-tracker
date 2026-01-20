@@ -107,6 +107,8 @@ async fn run(args: &Arguments) -> Result<()> {
         tokio::fs::create_dir_all(processing_directory).await?;
         let result = version.download().await?;
         java_decompiler::decompile_from_path(&result.client, processing_directory).await?;
+        // Fetch the remote branch to build on top of existing history
+        git_tracker.fetch_branch("client")?;
         git_tracker.create_commit(
             processing_directory,
             format!(
